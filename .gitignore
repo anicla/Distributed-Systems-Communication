@@ -1,0 +1,8 @@
+# archivos generados al compilar
+*.o
+*.so
+app-cliente
+tests_local
+
+# otros temporales
+*~
