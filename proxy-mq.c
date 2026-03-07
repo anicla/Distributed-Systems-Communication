@@ -1,110 +1,283 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <mqueue.h>
-#include <unistd.h>
+/* Parte B: implementamos la misma API de claves.h, pero en vez de acceder a memoria local,
+se empaqueta la operación en un mensaje y la envía a un servidor a través de colas POSIX (mqueue)*/
+
+
+#define _POSIX_C_SOURCE 200809L // Para exponer APIs POSIX
 #include "comun.h"
+#include "claves.h"  // prototipos de la API + struct Paquete
+#include <mqueue.h>  // colas POSIX
+#include <pthread.h> // threads
+#include <errno.h>   // errno
+#include <stdio.h>   // printf, perror
+#include <string.h>  // memset, strncpy, strlen
+#include <stdlib.h>  // malloc, free
+#include <unistd.h>  // getpid
+#include <time.h>    // clock_gettime
 
-// Eliminamos la redefinición de SERVER_QUEUE porque ya viene de comun.h
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <mqueue.h>
-#include <unistd.h>
-#include <errno.h>
-#include "comun.h"
+#define REPLY_TIMEOUT_SEC 2  // timeout para esperar respuesta del servidor (segundos)
 
-// Versión refinada de cliente_rpc en proxy-mq.c
-static int cliente_rpc(struct Peticion *req, struct Respuesta *res) {
-    mqd_t q_serv, q_cli;
-    char name_cli[100];
-    sprintf(name_cli, "/CLIENTE_%d", getpid());
 
-    // 1. Abrir cola servidor (O_NONBLOCK es clave para robustez)
-    q_serv = mq_open(SERVER_QUEUE, O_WRONLY | O_NONBLOCK);
-    if (q_serv == -1) return -2;
+static pthread_mutex_t g_name_mtx = PTHREAD_MUTEX_INITIALIZER; // Mutex para proteger la generación de nombres únicos de colas de respuesta
+static unsigned long g_req_id = 0; // Contador para generar IDs únicos para las colas de respuesta
 
-    // 2. Crear cola cliente
-    struct mq_attr attr = {.mq_maxmsg = 10, .mq_msgsize = sizeof(struct Respuesta)};
-    // Usamos O_EXCL para evitar conflictos si el PID se reutiliza
-    mq_unlink(name_cli);
-    q_cli = mq_open(name_cli, O_CREAT | O_RDONLY | O_EXCL, 0700, &attr);
-    if (q_cli == -1) {
-        mq_close(q_serv);
-        return -2;
-    }
-
-    strncpy(req->q_cliente, name_cli, MAX_STR);
-
-    // 3. Envío con verificación de error
-    if (mq_send(q_serv, (const char *)req, sizeof(struct Peticion), 0) == -1) {
-        mq_close(q_serv); mq_close(q_cli); mq_unlink(name_cli);
-        return -2;
-    }
-
-    // 4. Recepción (aquí podrías añadir un timeout para mayor robustez)
-    if (mq_receive(q_cli, (char *)res, sizeof(struct Respuesta), NULL) == -1) {
-        mq_close(q_serv); mq_close(q_cli); mq_unlink(name_cli);
-        return -2;
-    }
-
-    mq_close(q_serv);
-    mq_close(q_cli);
-    mq_unlink(name_cli);
-
-    return res->resultado;
-}
-int destroy(void) {
-    struct Peticion req = {.op = OP_DESTROY};
-    struct Respuesta res;
-    return cliente_rpc(&req, &res);
+// Validación de formato de clave: no nula, no vacía, no demasiado larga
+static int validate_key(const char *key) {
+    if (key == NULL) return 0;
+    if (key[0] == '\0') return 0;
+    if (strnlen(key, MAX_STR) > (MAX_STR - 1)) return 0;
+    return 1;
 }
 
-int set_value(char *key, char *value1, int N_value2, float *V_value2, struct Paquete value3) {
-    if (N_value2 > 32 || strlen(value1) > 255) return -1; // Validación local
-    struct Peticion req = {.op = OP_SET_VALUE, .N_value2 = N_value2, .value3 = value3};
-    struct Respuesta res;
-    strncpy(req.key, key, MAX_STR);
-    strncpy(req.value1, value1, MAX_STR);
-    for(int i=0; i<N_value2; i++) req.V_value2[i] = V_value2[i];
-    return cliente_rpc(&req, &res);
+// Validación de formato de cadenas (key y value1): no sean NULL y que value1 no supere la longitud máxima. La validación completa de la key (no vacía y longitud válida) se realiza en validate_key().
+static int validate_strings(const char *key, const char *value1) {
+    if (!key || !value1) return 0;
+    if (strnlen(value1, MAX_STR) > (MAX_STR - 1)) return 0;
+    return 1;
 }
 
-int get_value(char *key, char *value1, int *N_value2, float *V_value2, struct Paquete *value3) {
-    struct Peticion req = {.op = OP_GET_VALUE};
-    struct Respuesta res;
-    strncpy(req.key, key, MAX_STR);
-    int ret = cliente_rpc(&req, &res);
-    if (ret == 0) {
-        strncpy(value1, res.value1, MAX_STR);
-        *N_value2 = res.N_value2;
-        *value3 = res.value3;
-        for(int i=0; i<res.N_value2; i++) V_value2[i] = res.V_value2[i];
+// Función para generar un nombre único para la cola de respuesta del cliente
+static int make_reply_queue_name(char out[MAX_QNAME]) {
+    pid_t pid = getpid();
+    unsigned long id;
+
+    if (pthread_mutex_lock(&g_name_mtx) != 0) return 0; // Si falla el mutex, es un error interno en el cliente (lo tratamos como error de comunicaciones)
+    id = ++g_req_id; // Incrementamos el contador para generar un ID único
+    pthread_mutex_unlock(&g_name_mtx); // Desbloqueamos el mutex
+
+    int n = snprintf(out, MAX_QNAME, "/mq_claves_cli_%ld_%lu", (long)pid, id); // Generamos el nombre de la cola de respuesta
+    return (n > 0 && n < MAX_QNAME); // Si el nombre generado cabe en el buffer -> éxito, si no -> error de comunicaciones
+}
+
+// Función para enviar una solicitud al servidor y esperar la respuesta con timeout
+static int send_request_and_wait(const Request *req_in, Response *resp_out) {
+    Request req = *req_in; // Copia local de la petición
+
+    struct mq_attr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.mq_maxmsg = 10;
+    attr.mq_msgsize = sizeof(Response);
+
+    mqd_t reply_mq = (mqd_t)-1;
+    mqd_t srv = (mqd_t)-1;
+    int ret = -2; // Por defecto, cualquier fallo aquí se interpreta como error de comunicación
+
+    // Si existiese una cola con el mismo nombre, la eliminamos antes de crear la nueva
+    mq_unlink(req.reply_queue);
+
+    // Creamos la cola privada de respuesta del cliente
+    reply_mq = mq_open(req.reply_queue, O_CREAT | O_RDONLY, 0600, &attr);
+    if (reply_mq == (mqd_t)-1) {
+        goto cleanup;
     }
+
+    // Abrimos la cola del servidor
+    srv = mq_open(SERVER_QUEUE, O_WRONLY);
+    if (srv == (mqd_t)-1) {
+        goto cleanup;
+    }
+
+    // Enviamos la petición al servidor
+    if (mq_send(srv, (const char*)&req, sizeof(req), 0) == -1) {
+        goto cleanup;
+    }
+
+    // Ya no necesitamos la cola del servidor
+    mq_close(srv);
+    srv = (mqd_t)-1;
+
+    // Preparamos timeout absoluto para la recepción
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
+        goto cleanup;
+    }
+    ts.tv_sec += REPLY_TIMEOUT_SEC;
+
+    // Esperamos la respuesta del servidor
+    ssize_t n = mq_timedreceive(reply_mq, (char*)resp_out, sizeof(*resp_out), NULL, &ts);
+    if (n < 0) {
+        goto cleanup;
+    }
+
+    // Si el tamaño recibido no coincide con el esperado, lo tratamos como error de comunicación
+    if ((size_t)n != sizeof(*resp_out)) {
+        goto cleanup;
+    }
+
+    // Comunicación correcta: la respuesta es válida
+    ret = 0;
+
+cleanup:
+    // Cerramos descriptores abiertos, si los hay
+    if (srv != (mqd_t)-1) {
+        mq_close(srv);
+    }
+    if (reply_mq != (mqd_t)-1) {
+        mq_close(reply_mq);
+    }
+
+    // Eliminamos siempre la cola privada de respuesta
+    mq_unlink(req.reply_queue);
+
     return ret;
 }
 
+// Implementación API pública (claves.h)
+
+int destroy(void) { 
+    Request req; // Solo empaquetamos op y esperamos ret.
+    memset(&req, 0, sizeof(req)); 
+    req.op = OP_DESTROY;
+
+    if (!make_reply_queue_name(req.reply_queue)) return -2;
+
+    Response resp; 
+    int comm = send_request_and_wait(&req, &resp); 
+    if (comm == -2) return -2; 
+
+    return resp.ret; // 0 / -1
+}
+
+// Validamos lo que es realmente comprobable antes de mandar la solicitud al servidor para evitar tráfico innecesario
+int set_value(char *key, char *value1, int N_value2, float *V_value2, struct Paquete value3) {
+    // Validaciones "sin contactar"
+    if (!validate_key(key)) return -1;
+    if (!validate_strings(key, value1)) return -1;
+    if (N_value2 < 1 || N_value2 > MAX_V2) return -1;
+    if (!V_value2) return -1;
+
+    Request req; 
+    memset(&req, 0, sizeof(req)); 
+    req.op = OP_SET; 
+
+    if (!make_reply_queue_name(req.reply_queue)) return -2; // Si no se pudo generar un nombre de cola de respuesta -> error de comunicaciones
+
+    // Copiamos a buffers de tamaño fijo del protocolo (evitamos punteros crudos en mensajes)
+    strncpy(req.key, key, MAX_STR - 1); // Copiar clave a la solicitud
+    req.key[MAX_STR - 1] = '\0';        // Asegurar terminación de cadena
+
+    strncpy(req.value1, value1, MAX_STR - 1); 
+    req.value1[MAX_STR - 1] = '\0';          
+
+    req.N_value2 = N_value2; 
+
+    // Inicializamos el vector completo para que el mensaje sea determinista (sin basura)
+    for (int i = 0; i < MAX_V2; i++) req.V_value2[i] = 0.0f; 
+    for (int i = 0; i < N_value2; i++) req.V_value2[i] = V_value2[i]; 
+    req.value3 = value3;
+
+    Response resp;
+    int comm = send_request_and_wait(&req, &resp); 
+    if (comm == -2) return -2; 
+
+    return resp.ret; 
+}
+
+// Si la comunicación va bien pero el servidor devuelve -1 (clave no existe), propagamos -1 tal cual
+int get_value(char *key, char *value1, int *N_value2, float *V_value2, struct Paquete *value3) {
+    // Validación "sin contactar"
+
+    if (!key || !value1 || !N_value2 || !V_value2 || !value3) return -1; // Si algún puntero es nulo -> error "normal" del servicio
+    if (!validate_key(key)) return -1; // Si el formato de la clave no es válido -> error "normal" del servicio
+
+    Request req;                 
+    memset(&req, 0, sizeof(req)); 
+    req.op = OP_GET;              
+
+    if (!make_reply_queue_name(req.reply_queue)) return -2; 
+
+    strncpy(req.key, key, MAX_STR - 1); // Copiar clave a la solicitud
+    req.key[MAX_STR - 1] = '\0';        // Asegurar terminación de cadena
+
+    Response resp; 
+    int comm = send_request_and_wait(&req, &resp); 
+    if (comm == -2) return -2; 
+
+    if (resp.ret == 0) {                           // Si la operación fue exitosa -> copiamos los resultados a los punteros de salida
+        strncpy(value1, resp.value1, MAX_STR - 1); // Copiar value1 de la respuesta al puntero de salida
+        value1[MAX_STR - 1] = '\0';                // Asegurar terminación de cadena
+
+        *N_value2 = resp.N_value2; 
+        for (int i = 0; i < MAX_V2; i++) V_value2[i] = resp.V_value2[i]; 
+        *value3 = resp.value3; 
+    }
+
+    return resp.ret; // 0 / -1
+}
+
+// Misma filosofía que set_value, pero la operación exige que la clave exista
 int modify_value(char *key, char *value1, int N_value2, float *V_value2, struct Paquete value3) {
-    if (N_value2 > 32 || strlen(value1) > 255) return -1;
-    struct Peticion req = {.op = OP_MODIFY_VALUE, .N_value2 = N_value2, .value3 = value3};
-    struct Respuesta res;
-    strncpy(req.key, key, MAX_STR);
-    strncpy(req.value1, value1, MAX_STR);
-    for(int i=0; i<N_value2; i++) req.V_value2[i] = V_value2[i];
-    return cliente_rpc(&req, &res);
+    // Validaciones "sin contactar"
+
+    if (!validate_key(key)) return -1;
+    if (!validate_strings(key, value1)) return -1;
+    if (N_value2 < 1 || N_value2 > MAX_V2) return -1;
+    if (!V_value2) return -1;                        // Si el puntero al array es nulo -> error "normal" del servicio
+
+    Request req; 
+    memset(&req, 0, sizeof(req)); 
+    req.op = OP_MODIFY; 
+
+    if (!make_reply_queue_name(req.reply_queue)) return -2;
+
+    strncpy(req.key, key, MAX_STR - 1); 
+    req.key[MAX_STR - 1] = '\0'; 
+
+    strncpy(req.value1, value1, MAX_STR - 1); 
+    req.value1[MAX_STR - 1] = '\0'; 
+
+    req.N_value2 = N_value2; 
+    for (int i = 0; i < MAX_V2; i++) req.V_value2[i] = 0.0f;
+    for (int i = 0; i < N_value2; i++) req.V_value2[i] = V_value2[i]; 
+    req.value3 = value3; 
+
+    Response resp; 
+    int comm = send_request_and_wait(&req, &resp); 
+    if (comm == -2) return -2; 
+
+    return resp.ret; // 0 / -1
 }
 
+// Operación simple, pero mantiene la distinción -1 vs -2
 int delete_key(char *key) {
-    struct Peticion req = {.op = OP_DELETE_KEY};
-    struct Respuesta res;
-    strncpy(req.key, key, MAX_STR);
-    return cliente_rpc(&req, &res);
+    // Validación "sin contactar"
+
+    if (!validate_key(key)) return -1; // Si el formato de la clave no es válido -> error "normal" del servicio
+
+    Request req; // Solicitud
+    memset(&req, 0, sizeof(req)); // Inicializar a cero para evitar basura en campos no usados
+    req.op = OP_DELETE; 
+
+    if (!make_reply_queue_name(req.reply_queue)) return -2; // Si no se pudo generar un nombre de cola de respuesta -> error de comunicaciones
+
+    strncpy(req.key, key, MAX_STR - 1); // Copiar clave a la solicitud
+    req.key[MAX_STR - 1] = '\0';        // Asegurar terminación de cadena
+
+    Response resp;                               // Variable para recibir la respuesta del servidor
+    int comm = send_request_and_wait(&req, &resp); // Enviar solicitud y esperar respuesta
+    if (comm == -2) return -2;                     // Si hubo un error de comunicaciones (timeout, error al enviar o recibir) -> devolvemos -2
+
+    return resp.ret; // 0 / -1
 }
 
+// Devuelve 1/0/-1 (servicio) o -2 si no hay comunicación
 int exist(char *key) {
-    struct Peticion req = {.op = OP_EXIST};
-    struct Respuesta res;
-    strncpy(req.key, key, MAX_STR);
-    return cliente_rpc(&req, &res);
+    // En la versión distribuida: errores del servicio -> -1; errores de comunicaciones -> -2
+
+    if (!validate_key(key)) return -1; // Si el formato de la clave no es válido -> error "normal" del servicio
+
+    Request req; 
+    memset(&req, 0, sizeof(req)); 
+    req.op = OP_EXIST; 
+
+    if (!make_reply_queue_name(req.reply_queue)) return -2; 
+
+    strncpy(req.key, key, MAX_STR - 1); 
+    req.key[MAX_STR - 1] = '\0'; 
+
+    Response resp; 
+    int comm = send_request_and_wait(&req, &resp); // Enviar solicitud y esperar respuesta
+    if (comm == -2) return -2;                     // Si hubo un error de comunicaciones (timeout, error al enviar o recibir) -> devolvemos -2
+
+    return resp.ret; // 1 / 0 / -1
 }
