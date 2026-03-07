@@ -3,40 +3,38 @@
 
 #include "claves.h"
 
-// Define aquí el nombre de tu cola (debe empezar por /)
-#define SERVER_QUEUE "/SERVIDOR_GRUPO_DPAZ"
+#define SERVER_QUEUE "/mq_claves_srv_100475965_100498667"
 
-#define MAX_STR 256
-#define MAX_V2  32
+#define MAX_STR   256
+#define MAX_V2    32
+#define MAX_QNAME 64
 
-// Tipos de operaciones para el servidor
 typedef enum {
-    OP_DESTROY,
-    OP_SET_VALUE,
-    OP_GET_VALUE,
-    OP_MODIFY_VALUE,
-    OP_DELETE_KEY,
+    OP_DESTROY = 1,
+    OP_SET,
+    OP_GET,
+    OP_MODIFY,
+    OP_DELETE,
     OP_EXIST
 } OpType;
 
-// Estructura de petición (Cliente -> Servidor)
-struct Peticion {
+typedef struct {
     OpType op;
-    char q_cliente[MAX_STR];
+    char reply_queue[MAX_QNAME];
+
     char key[MAX_STR];
     char value1[MAX_STR];
     int  N_value2;
     float V_value2[MAX_V2];
     struct Paquete value3;
-};
+} Request;
 
-// Estructura de respuesta (Servidor -> Cliente)
-struct Respuesta {
-    int resultado;
+typedef struct {
+    int ret;
     char value1[MAX_STR];
     int  N_value2;
     float V_value2[MAX_V2];
     struct Paquete value3;
-};
+} Response;
 
 #endif
