@@ -44,10 +44,17 @@ static Nodo* find_node(const char *key) {
 }
 
 // Valida longitudes máximas de strings según el contrato
-static int validate_strings(const char *key, const char *value1) {
-    if (!key || !value1) return 0;
-    if (strnlen(key, MAX_STR)  > (MAX_STR - 1)) return 0;
-    if (strnlen(value1, MAX_STR) > (MAX_STR - 1)) return 0;
+static int validate_value1(const char *value1) {
+    if (value1 == NULL) return 0;
+    if (strnlen(value1, MAX_STR) > MAX_STR - 1) return 0;
+    return 1;
+}
+
+// Valida formato de clave: no nula, no vacía, no demasiado larga
+static int validate_key_local(const char *key) {
+    if (key == NULL) return 0;
+    if (key[0] == '\0') return 0;              // decisión adicional de diseño
+    if (strnlen(key, MAX_STR) > MAX_STR - 1) return 0;
     return 1;
 }
 
@@ -69,11 +76,11 @@ int destroy(void) {
 
 // Inserta una nueva tupla asociada a la clave si no existe previamente
 int set_value(char *key, char *value1, int N_value2, float *V_value2, struct Paquete value3) {
-    if (!validate_strings(key, value1)) return -1; // Si los strings no son válidos (NULL o demasiado largos) -> error
-    if (N_value2 < 1 || N_value2 > MAX_V2) return -1; // Si N_value2 no está en el rango válido -> error
-    if (!V_value2) return -1; // Si V_value2 es NULL -> error
-
-   if (pthread_mutex_lock(&g_mutex) != 0) return -1;// Bloqueamos para proteger la sección crítica
+    if (!validate_key_local(key)) return -1;
+    if (!validate_value1(value1)) return -1;
+    if (N_value2 < 1 || N_value2 > MAX_V2) return -1;
+    if (V_value2 == NULL) return -1;
+    if (pthread_mutex_lock(&g_mutex) != 0) return -1;// Bloqueamos para proteger la sección crítica
 
     // Error si ya existe la clave
     if (find_node(key) != NULL) {
@@ -110,9 +117,8 @@ int set_value(char *key, char *value1, int N_value2, float *V_value2, struct Paq
 
 // Recupera los valores asociados a una clave existente
 int get_value(char *key, char *value1, int *N_value2, float *V_value2, struct Paquete *value3) {
-    if (!key || !value1 || !N_value2 || !V_value2 || !value3) return -1; // Si alguno de los punteros es NULL -> error
-    if (strnlen(key, MAX_STR) > (MAX_STR - 1)) return -1; // Si key no termina en '\0' o es demasiado larga -> errorr
-
+    if (!validate_key_local(key)) return -1;
+    if (value1 == NULL || N_value2 == NULL || V_value2 == NULL || value3 == NULL) return -1;
     if (pthread_mutex_lock(&g_mutex) != 0) return -1; // Bloqueamos para proteger la sección crítica
 
     // Buscamos el nodo existente para recuperar sus valores
@@ -138,10 +144,10 @@ int get_value(char *key, char *value1, int *N_value2, float *V_value2, struct Pa
 
 // Modifica los valores asociados a una clave existente
 int modify_value(char *key, char *value1, int N_value2, float *V_value2, struct Paquete value3) {
-    if (!validate_strings(key, value1)) return -1; // Si los strings no son válidos (NULL o demasiado largos) -> error
-    if (N_value2 < 1 || N_value2 > MAX_V2) return -1; // Si N_value2 no está en el rango válido -> error
-    if (!V_value2) return -1; // Si V_value2 es NULL -> error
-
+    if (!validate_key_local(key)) return -1;
+    if (!validate_value1(value1)) return -1;
+    if (N_value2 < 1 || N_value2 > MAX_V2) return -1;
+    if (V_value2 == NULL) return -1;
     if (pthread_mutex_lock(&g_mutex) != 0) return -1; // Bloqueamos para proteger la sección crítica
 
     // Buscamos el nodo existente para modificarlo
@@ -167,11 +173,10 @@ int modify_value(char *key, char *value1, int N_value2, float *V_value2, struct 
 
 // Elimina una clave de la lista
 int delete_key(char *key) {
-    if (!key) return -1; // Si key es NULL -> error
-    if (strnlen(key, MAX_STR) > (MAX_STR - 1)) return -1; // Si key no termina en '\0' o es demasiado larga -> error
-
-    if (pthread_mutex_lock(&g_mutex) != 0) return -1;// Bloqueamos para proteger la sección crítica
-
+    if (!validate_key_local(key)) return -1; // Si key es NULL -> error
+    
+    if (pthread_mutex_lock(&g_mutex) != 0) return -1; // Bloqueamos para proteger la sección crítica
+    
     Nodo *cur = g_head; // Puntero para recorrer la lista
     Nodo *prev = NULL; // Puntero para mantener el nodo anterior (necesario para eliminar)
 
@@ -195,9 +200,7 @@ int delete_key(char *key) {
 
 // Verifica si una clave existe en la lista
 int exist(char *key) {
-    if (!key) return -1;
-    if (strnlen(key, MAX_STR) > (MAX_STR - 1)) return -1;
-
+    if (!validate_key_local(key)) return -1;
     if (pthread_mutex_lock(&g_mutex) != 0) return -1;
 
     int res = (find_node(key) != NULL) ? 1 : 0;
