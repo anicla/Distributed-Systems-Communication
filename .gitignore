@@ -1,8 +1,54 @@
-# archivos generados al compilar
+# =========================
+# Objetos y librerías
+# =========================
 *.o
 *.so
-app-cliente
-tests_local
+*.a
 
-# otros temporales
+# =========================
+# Ejecutables generados
+# =========================
+app-cliente
+cliente_test
+tests
+tests_local
+test_comunicacion
+servidor-mq
+proxy-mq
+
+# =========================
+# Archivos de compilación
+# =========================
+*.out
+*.exe
+
+# =========================
+# Archivos temporales
+# =========================
 *~
+*.swp
+*.swo
+
+# =========================
+# Carpetas de compilación
+# =========================
+build/
+dist/
+
+# =========================
+# Archivos de sistema
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Archivos de editor / IDE
+# =========================
+.vscode/
+.idea/
+*.code-workspace
+
+# =========================
+# Archivos de logs
+# =========================
+*.log
