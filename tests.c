@@ -134,6 +134,13 @@ int main(void) {
     float v1[3] = {1.0f, 2.0f, 3.0f};
     struct Paquete p1 = {1,2,3};
 
+    float bigV[33];
+    for (int i = 0; i < 33; i++) bigV[i] = (float)i;
+
+    char longkey[400];
+    memset(longkey, 'A', sizeof(longkey));
+    longkey[399] = '\0';
+
     check_int("set_value k1", set_value("k1", "valor1", 3, v1, p1), 0);
     check_int("exist k1", exist("k1"), 1);
 
@@ -169,7 +176,7 @@ int main(void) {
     check_int("exist k1 (after delete)", exist("k1"), 0);
     check_int("destroy (end)", destroy(), 0);
 
-    /* 2) Tests de errores */
+        /* 2) Tests de errores */
 
     // duplicado
     check_int("set_value k2", set_value("k2", "v", 3, v1, p1), 0);
@@ -180,32 +187,67 @@ int main(void) {
     check_int("modify_value missing", modify_value("noExiste", "x", 3, v1, p1), -1);
     check_int("delete_key missing", delete_key("noExiste"), -1);
 
+    // punteros de salida nulos en get_value
+    check_int("get_value value1=NULL", get_value("k2", NULL, &outN, outV, &outP), -1);
+    check_int("get_value N_value2=NULL", get_value("k2", out_value1, NULL, outV, &outP), -1);
+    check_int("get_value V_value2=NULL", get_value("k2", out_value1, &outN, NULL, &outP), -1);
+    check_int("get_value value3=NULL", get_value("k2", out_value1, &outN, outV, NULL), -1);
+
+    // punteros / parámetros inválidos en modify_value
+    check_int("modify_value value1=NULL", modify_value("k2", NULL, 3, v1, p1), -1);
+    check_int("modify_value N=0", modify_value("k2", "x", 0, v1, p1), -1);
+    check_int("modify_value N=33", modify_value("k2", "x", 33, bigV, p1), -1);
+    check_int("modify_value V=NULL", modify_value("k2", "x", 3, NULL, p1), -1);
+
     // N fuera de rango
     check_int("set_value N=0", set_value("k3", "v", 0, v1, p1), -1);
-    float bigV[33];
-    for (int i = 0; i < 33; i++) bigV[i] = (float)i;
     check_int("set_value N=33", set_value("k4", "v", 33, bigV, p1), -1);
 
     // puntero NULL
     check_int("set_value V=NULL", set_value("k5", "v", 3, NULL, p1), -1);
 
-    // exist con NULL tiene que ser error
+    // exist / delete con NULL
     check_int("exist NULL", exist(NULL), -1);
+    check_int("delete_key NULL", delete_key(NULL), -1);
+
+    // clave vacía (decisión adicional de validación)
+    check_int("set_value empty key", set_value("", "v", 3, v1, p1), -1);
+    check_int("get_value empty key", get_value("", out_value1, &outN, outV, &outP), -1);
+    check_int("modify_value empty key", modify_value("", "x", 3, v1, p1), -1);
+    check_int("delete_key empty key", delete_key(""), -1);
+    check_int("exist empty key", exist(""), -1);
 
     // string demasiado largo (más de 255)
-    char longkey[400];
-    memset(longkey, 'A', sizeof(longkey));
-    longkey[399] = '\0';
     check_int("set_value long key", set_value(longkey, "v", 3, v1, p1), -1);
+    check_int("get_value long key", get_value(longkey, out_value1, &outN, outV, &outP), -1);
+    check_int("modify_value long key", modify_value(longkey, "x", 3, v1, p1), -1);
     check_int("exist long key", exist(longkey), -1);
     check_int("delete_key long key", delete_key(longkey), -1);
-
+    
     destroy();
-
+    
     /* 3) Test de concurrencia (para comprobar atomicidad) */
     test_concurrency_set_same_key();
 
     // resumen final
     printf("==== RESUMEN: OK=%d FAIL=%d ====\n", tests_ok, tests_fail);
     return (tests_fail == 0) ? 0 : 1;
+}
+
+/*----- TEST PARTE B: error de comunicación -----*/
+/*
+ * Este test debe ejecutarse con el servidor apagado.
+ * No forma parte de la batería principal porque los tests normales
+ * requieren que el servidor esté activo.
+ * Comprueba que se devuelve -2 si el servidor no responde.
+ */
+void test_error_comunicacion_sin_servidor() {
+    char value1[MAX_STR];
+    int n = 0;
+    float v[MAX_V2];
+    struct Paquete p = {0,0,0};
+
+    int r = get_value("clave_que_no_importa", value1, &n, v, &p);
+
+    check_int("communication error (-2 expected)", r, -2);
 }
