@@ -1,103 +1,182 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <mqueue.h>
-#include <pthread.h>
-#include <signal.h>
+// Parte B: servidor concurrente con colas POSIX 
+// El diseño se basa en hilo por petición y se hace detach
+
+#define _POSIX_C_SOURCE 200809L // mq_open y sigaction
+
 #include "comun.h"
-#include "claves.h"
+#include "claves.h"  // prototipos + struct Paquete
+#include <mqueue.h>  // colas POSIX
+#include <pthread.h> // threads
+#include <signal.h>  // manejo de señales
+#include <stdio.h>   // printf, perror
+#include <stdlib.h>  // malloc, free
+#include <string.h>  // memset, strncpy, strlen
+#include <errno.h>   // errno
+#include <unistd.h>  // _exit
 
-// Manejador para cerrar el servidor limpiamente
-void manejador_sigint(int sig) {
-    (void)sig; // Esto marca la variable como 'usada' para el compilador
-    printf("\nCerrando servidor de forma segura...\n");
+
+
+
+static mqd_t g_srv_mq = (mqd_t)-1; // Descriptor de la cola del servidor, global para poder cerrarla desde el manejador de señales
+
+volatile sig_atomic_t g_salir = 0; // Flag para indicar que el servidor debe salir
+
+// Función para limpiar la cola del servidor y salir con el código dado
+static void cleanup_and_exit(int code) {
+    if (g_srv_mq != (mqd_t)-1) mq_close(g_srv_mq);
     mq_unlink(SERVER_QUEUE);
-    exit(0);
+    _exit(code);
 }
 
-void *atender_cliente(void *arg) {
-    struct Peticion req = *(struct Peticion *)arg;
-    free(arg);
-    struct Respuesta res;
-    mqd_t q_cli;
+// Manejador de señales para limpiar la cola del servidor antes de salir
+static void on_sigint(int sig) {
+    (void)sig;
+    g_salir = 1; // Solo levantamos la bandera
+}
 
-    // Procesar operación según el código de operación (OP_...)
+// Argumento para cada thread worker, contiene la solicitud a procesar
+typedef struct {
+    Request req;
+} worker_arg_t;
+
+// Función que ejecuta cada thread para procesar una solicitud y responder al cliente
+static void* worker_fn(void *arg) {
+    worker_arg_t *w = (worker_arg_t*)arg; // Convertimos el argumento a nuestro tipo definido
+    Request req = w->req;               // Copiamos la solicitud a una variable local para trabajar con ella
+    free(w);
+
+    Response resp;                // Variable para construir la respuesta al cliente
+    memset(&resp, 0, sizeof(Response)); // Inicializamos la estructura de respuesta a cero
+
+    // Ejecutar operación (API local de la parte A)
     switch (req.op) {
-        case OP_SET_VALUE:
-            res.resultado = set_value(req.key, req.value1, req.N_value2, req.V_value2, req.value3);
-            break;
-        case OP_GET_VALUE:
-            res.resultado = get_value(req.key, res.value1, &res.N_value2, res.V_value2, &res.value3);
-            break;
-        case OP_EXIST:
-            res.resultado = exist(req.key);
-            break;
+
+        // Ejecutamos destroy() y guardamos su resultado en resp.ret
         case OP_DESTROY:
-            res.resultado = destroy();
+            resp.ret = destroy();
             break;
-        case OP_DELETE_KEY:
-            res.resultado = delete_key(req.key);
-            break;
-        case OP_MODIFY_VALUE:
-            res.resultado = modify_value(req.key, req.value1, req.N_value2, req.V_value2, req.value3);
-            break;
-        default:
-            res.resultado = -1;
-    }
 
-    // Abrir cola del cliente para enviar respuesta
-    q_cli = mq_open(req.q_cliente, O_WRONLY);
-    if (q_cli != -1) {
-        if (mq_send(q_cli, (const char *)&res, sizeof(res), 0) == -1) {
-            perror("Error al enviar respuesta al cliente");
+        // Ejecutamos set_value() con los parámetros recibidos en la solicitud y guardamos su resultado en resp.ret
+        case OP_SET:
+            resp.ret = set_value(req.key, req.value1, req.N_value2, req.V_value2, req.value3);
+            break;
+
+        /* Ejecutamos get_value() con los parámetros recibidos en la solicitud y guardamos su resultado en resp.ret
+        Si el resultado es 0 -> guardamos los valores obtenidos en resp.value1, resp.N_value2, resp.V_value2 y resp.value3 para enviarlos al cliente*/
+        case OP_GET: {
+            int N;
+            struct Paquete p;
+            char v1[MAX_STR];
+            float v2[MAX_V2];
+
+            resp.ret = get_value(req.key, v1, &N, v2, &p);
+            if (resp.ret == 0) {
+                strncpy(resp.value1, v1, MAX_STR-1);
+                resp.value1[MAX_STR-1] = '\0';
+                resp.N_value2 = N;
+                for (int i = 0; i < MAX_V2; i++) resp.V_value2[i] = v2[i];
+                resp.value3 = p;
+            }
+            break;
         }
-        mq_close(q_cli);
+
+        // Ejecutamos modify_value() con los parámetros recibidos en la solicitud y guardamos su resultado en resp.ret
+        case OP_MODIFY:
+            resp.ret = modify_value(req.key, req.value1, req.N_value2, req.V_value2, req.value3);
+            break;
+
+        // Ejecutamos delete_key() con los parámetros recibidos en la solicitud y guardamos su resultado en resp.ret
+        case OP_DELETE:
+            resp.ret = delete_key(req.key);
+            break;
+
+        // Ejecutamos exist() con los parámetros recibidos en la solicitud y guardamos su resultado en resp.ret
+        case OP_EXIST:
+            resp.ret = exist(req.key); // 1 / 0 / -1
+            break;
+
+        // Si la operación no es ninguna de las anteriores -> guardamos -1 en resp.ret para indicar error
+        default:
+            resp.ret = -1;
+            break;
     }
 
-    pthread_exit(NULL);
+        // Abrimos la cola privada del cliente para enviar la respuesta
+    mqd_t cli = mq_open(req.reply_queue, O_WRONLY);
+    if (cli == (mqd_t)-1) {
+        // Si no podemos abrir la cola de respuesta del cliente, no hay forma de responderle.
+        // El cliente acabará interpretándolo como error de comunicación (-2) por timeout.
+        perror("mq_open client reply queue");
+        pthread_exit(NULL);
+    }
+
+    // Enviamos la respuesta al cliente
+    if (mq_send(cli, (const char*)&resp, sizeof(resp), 0) == -1) {
+        // Si falla el envío, el cliente acabará devolviendo -2 por timeout o error de recepción.
+        perror("mq_send reply");
+    }
+
+    mq_close(cli);
+    return NULL;
 }
 
-int main() {
-    mqd_t q_servidor;
-    struct mq_attr attr = {.mq_maxmsg = 10, .mq_msgsize = sizeof(struct Peticion)};
+// Función principal del servidor
+int main(void) {
+    struct sigaction sa; 
+    memset(&sa, 0, sizeof(sa)); // Limpiamos la estructura
+    sa.sa_handler = on_sigint;  // Asignamos el manejador para SIGINT (Ctrl+C)
+    sigemptyset(&sa.sa_mask);   // No bloqueamos ninguna señal adicional durante la ejecución del manejador
 
-    // 1. REGISTRAR LA SEÑAL PRIMERO
-    // Esto garantiza que si pulsas Ctrl+C en cualquier momento, se limpie la cola.
-    signal(SIGINT, manejador_sigint);
+    sigaction(SIGINT, &sa, NULL);  // Configuramos el manejador para SIGINT (Ctrl+C) para salir limpiamente
+    sigaction(SIGTERM, &sa, NULL); // Configuramos el manejador para SIGTERM para salir limpiamente
 
-    // 2. Limpiar restos de ejecuciones fallidas previas
-    mq_unlink(SERVER_QUEUE);
+    mq_unlink(SERVER_QUEUE); // Limpiamos la cola por si ya existía de una ejecución anterior (evita errores al crearla)
 
-    // 3. Abrir la cola del servidor
-    q_servidor = mq_open(SERVER_QUEUE, O_CREAT | O_RDONLY, 0700, &attr);
-    if (q_servidor == (mqd_t)-1) {
-        perror("Error al abrir la cola del servidor");
-        return -1;
+    // Configuramos los atributos de la cola del servidor
+    struct mq_attr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.mq_maxmsg  = 10;                // Límite seguro para el número de mensajes en la cola
+    attr.mq_msgsize = sizeof(Request); // Tamaño máximo de cada mensaje
+
+    // Creamos la cola del servidor para recibir solicitudes de los clientes
+    g_srv_mq = mq_open(SERVER_QUEUE, O_CREAT | O_RDONLY, 0666, &attr);
+    if (g_srv_mq == (mqd_t)-1) {
+        perror("mq_open server");
+        return 1;
     }
 
-    printf("Servidor listo y escuchando en %s...\n", SERVER_QUEUE);
+    printf("Servidor MQ escuchando en %s\n", SERVER_QUEUE); // Mensaje informativo de que el servidor está listo
 
-    while (1) {
-        struct Peticion *req = malloc(sizeof(struct Peticion));
-        if (req == NULL) continue;
-
-        // Recibir petición
-        if (mq_receive(q_servidor, (char *)req, sizeof(struct Peticion), NULL) == -1) {
-            perror("Error al recibir mensaje");
-            free(req);
+    // Bucle principal: se ejecuta hasta que llegue una señal (Ctrl+C) y g_salir cambie a 1
+    while (!g_salir) {
+        Request req; // Variable para recibir la solicitud del cliente
+        ssize_t n = mq_receive(g_srv_mq, (char*)&req, sizeof(req), NULL); // Recibimos una solicitud de un cliente
+        
+        if (n < 0) {                      // Si hubo un error al recibir -> comprobamos si fue por señal o por otro motivo
+            if (errno == EINTR) continue; // Si fue interrumpido por señal -> continuamos el bucle para salir si g_salir ya es 1
+            perror("mq_receive");         // Si fue otro error -> lo informamos y salimos limpiamente
+            cleanup_and_exit(1);          // Limpiamos y salimos con error
+        }
+        if ((size_t)n != sizeof(req)) { // Si el mensaje recibido no tiene el tamaño esperado -> lo ignoramos
             continue;
         }
 
-        // Crear hilo para atender al cliente (CONCURRENCIA)
+        // Creamos un thread para procesar esta solicitud
+        worker_arg_t *w = malloc(sizeof(*w));
+        if (!w) continue; // Si no se pudo asignar memoria para el thread -> ignoramos esta solicitud
+        w->req = req; 
+
+        // Creamos el thread y lo detach para que se limpie automáticamente al terminar
         pthread_t th;
-        if (pthread_create(&th, NULL, atender_cliente, req) != 0) {
-            perror("Error al crear el hilo");
-            free(req);
-            continue;
+        if (pthread_create(&th, NULL, worker_fn, w) == 0) { // Si se pudo crear el thread -> lo detach para que se limpie automáticamente al terminar
+            pthread_detach(th);
+        } else { 
+            free(w);
         }
-
-        // Desacoplar el hilo para que libere recursos automáticamente al terminar
-        pthread_detach(th);
     }
-
+    
+    printf("\nCerrando servidor de forma segura...\n"); 
+    cleanup_and_exit(0); 
+    
     return 0;
 }
