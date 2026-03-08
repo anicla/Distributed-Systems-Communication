@@ -47,6 +47,8 @@ static void* worker_fn(void *arg) {
 
     Response resp;                // Variable para construir la respuesta al cliente
     memset(&resp, 0, sizeof(Response)); // Inicializamos la estructura de respuesta a cero
+    //DEPURACIÓN:
+    //printf("Servidor: recibida operacion %d para key='%s'\n", req.op, req.key);
 
     // Ejecutar operación (API local de la parte A)
     switch (req.op) {
