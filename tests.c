@@ -4,15 +4,18 @@
 #include <pthread.h>
 #include <stdlib.h>
 
-#define MAX_V2  32    // tamaño máximo del vector según el enunciado
-#define MAX_STR 256   // 255 chars útiles + '\0'
+// tamaño máximo del vector según el enunciado
+#define MAX_V2  32   
+
+// 255 chars útiles + '\0'
+#define MAX_STR 256  
 
 // contadores para saber cuántos tests han ido bien y cuántos han fallado
 static int tests_ok = 0, tests_fail = 0;
 
-/* ------------------ funciones de ayuda para comprobar resultados ------------------ */
+//------------------ funciones ausiliares para comprobar resultados ------------------ 
 
-// para tests que devuelven int (0, -1, etc.)
+// para tests que devuelven int (0, -1, 1 o -2)
 static void check_int(const char *name, int got, int expected) {
     if (got == expected) {
         printf("[OK]   %s -> %d\n", name, got);
@@ -23,7 +26,7 @@ static void check_int(const char *name, int got, int expected) {
     }
 }
 
-// para comparar strings (value1 normalmente)
+// para comparar cadenas (value1 normalmente)
 static void check_str(const char *name, const char *got, const char *expected) {
     if (strcmp(got, expected) == 0) {
         printf("[OK]   %s -> \"%s\"\n", name, got);
@@ -85,7 +88,7 @@ static void *thread_set_same_key(void *arg) {
 
 // test: lanzo 10 hilos y compruebo que solo uno consigue insertar (0) y los demás fallan (-1) porque la clave ya existe
 static void test_concurrency_set_same_key(void) {
-    destroy(); // dejo el almacén limpio antes de empezar
+    destroy(); // limipieza antes de empezar
 
     const int T = 10;
     pthread_t th[T];
@@ -101,7 +104,7 @@ static void test_concurrency_set_same_key(void) {
     // espero a que terminen
     for (int i = 0; i < T; i++) pthread_join(th[i], NULL);
 
-    // cuento cuántos han devuelto 0, -1 u otra cosa 
+    // cuento cuántos han devuelto 0, -1 u otros
     int ok0 = 0, okm1 = 0, other = 0;
     for (int i = 0; i < T; i++) {
         if (args[i].result == 0) ok0++;
@@ -109,7 +112,7 @@ static void test_concurrency_set_same_key(void) {
         else other++;
     }
 
-    // en local lo normal: 1 éxito y 9 fallos por duplicado
+    // 1 éxito y 9 fallos por duplicado
     if (ok0 == 1 && okm1 == 9 && other == 0) {
         printf("[OK]   concurrency set_value same key -> 1 success, 9 duplicate fails\n");
         tests_ok++;
@@ -119,24 +122,26 @@ static void test_concurrency_set_same_key(void) {
         tests_fail++;
     }
 
-    destroy(); // limpio después del test también
+    destroy(); // limpio al terminar
 }
 
-/* ------------------ tests principales ------------------ */
+// ------------------ tests principales ------------------ 
 
 int main(void) {
     printf("==== TESTS: Parte A (local) / Parte B (mismo fichero) ====\n");
 
-    /* 1) Tests válidos */
+    // ----- tests validos -----
 
     check_int("destroy (empty)", destroy(), 0);
 
     float v1[3] = {1.0f, 2.0f, 3.0f};
     struct Paquete p1 = {1,2,3};
 
+    // vector grande para probar errores de tamaño
     float bigV[33];
     for (int i = 0; i < 33; i++) bigV[i] = (float)i;
 
+    // clave demasiado larga para probar la validación
     char longkey[400];
     memset(longkey, 'A', sizeof(longkey));
     longkey[399] = '\0';
@@ -176,7 +181,7 @@ int main(void) {
     check_int("exist k1 (after delete)", exist("k1"), 0);
     check_int("destroy (end)", destroy(), 0);
 
-        /* 2) Tests de errores */
+    // ----- tests de errores -----
 
     // duplicado
     check_int("set_value k2", set_value("k2", "v", 3, v1, p1), 0);
@@ -187,37 +192,37 @@ int main(void) {
     check_int("modify_value missing", modify_value("noExiste", "x", 3, v1, p1), -1);
     check_int("delete_key missing", delete_key("noExiste"), -1);
 
-    // punteros de salida nulos en get_value
+    // punteros de salida NULL en get_value
     check_int("get_value value1=NULL", get_value("k2", NULL, &outN, outV, &outP), -1);
     check_int("get_value N_value2=NULL", get_value("k2", out_value1, NULL, outV, &outP), -1);
     check_int("get_value V_value2=NULL", get_value("k2", out_value1, &outN, NULL, &outP), -1);
     check_int("get_value value3=NULL", get_value("k2", out_value1, &outN, outV, NULL), -1);
 
-    // punteros / parámetros inválidos en modify_value
+    // punteros/parámetros inválidos en modify_value
     check_int("modify_value value1=NULL", modify_value("k2", NULL, 3, v1, p1), -1);
     check_int("modify_value N=0", modify_value("k2", "x", 0, v1, p1), -1);
     check_int("modify_value N=33", modify_value("k2", "x", 33, bigV, p1), -1);
     check_int("modify_value V=NULL", modify_value("k2", "x", 3, NULL, p1), -1);
 
-    // N fuera de rango
+    // N fuera de rango en set value
     check_int("set_value N=0", set_value("k3", "v", 0, v1, p1), -1);
     check_int("set_value N=33", set_value("k4", "v", 33, bigV, p1), -1);
 
-    // puntero NULL
+    // puntero NULL en set_value
     check_int("set_value V=NULL", set_value("k5", "v", 3, NULL, p1), -1);
 
     // exist / delete con NULL
     check_int("exist NULL", exist(NULL), -1);
     check_int("delete_key NULL", delete_key(NULL), -1);
 
-    // clave vacía (decisión adicional de validación)
+    // clave vacía 
     check_int("set_value empty key", set_value("", "v", 3, v1, p1), -1);
     check_int("get_value empty key", get_value("", out_value1, &outN, outV, &outP), -1);
     check_int("modify_value empty key", modify_value("", "x", 3, v1, p1), -1);
     check_int("delete_key empty key", delete_key(""), -1);
     check_int("exist empty key", exist(""), -1);
 
-    // string demasiado largo (más de 255)
+    // clave demasiado largo (más de 255)
     check_int("set_value long key", set_value(longkey, "v", 3, v1, p1), -1);
     check_int("get_value long key", get_value(longkey, out_value1, &outN, outV, &outP), -1);
     check_int("modify_value long key", modify_value(longkey, "x", 3, v1, p1), -1);
@@ -226,7 +231,7 @@ int main(void) {
     
     destroy();
     
-    /* 3) Test de concurrencia (para comprobar atomicidad) */
+    // ----- Test de concurrencia----- 
     test_concurrency_set_same_key();
 
     // resumen final
@@ -235,12 +240,8 @@ int main(void) {
 }
 
 /*----- TEST PARTE B: error de comunicación -----*/
-/*
- * Este test debe ejecutarse con el servidor apagado.
- * No forma parte de la batería principal porque los tests normales
- * requieren que el servidor esté activo.
- * Comprueba que se devuelve -2 si el servidor no responde.
- */
+
+// va seaprado porque se necesaita que el servidor está apagado
 void test_error_comunicacion_sin_servidor() {
     char value1[MAX_STR];
     int n = 0;
