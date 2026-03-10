@@ -3,12 +3,17 @@
 
 #include "claves.h"
 
+//cola pública del servidor.
 #define SERVER_QUEUE "/mq_claves_srv_100475965_100498667"
 
-#define MAX_STR   256
-#define MAX_V2    32
-#define MAX_QNAME 64
 
+// tamaños máximos usados en el protocolo de comunicación
+#define MAX_STR   256 // 255 caracteres útiles + '\0'
+#define MAX_V2    32 // tamaño máximo del vector de floats
+#define MAX_QNAME 64 // tamaño máximo para el nombre de una cola de respuesta
+
+
+// enumerado con los códigos de operación que el cliente puede pedir al servidor
 typedef enum {
     OP_DESTROY = 1,
     OP_SET,
@@ -18,6 +23,8 @@ typedef enum {
     OP_EXIST
 } OpType;
 
+
+// estructura que el cliente envía al servidor.
 typedef struct {
     OpType op;
     char reply_queue[MAX_QNAME];
@@ -29,6 +36,8 @@ typedef struct {
     struct Paquete value3;
 } Request;
 
+
+// estructura que el servidor devuelve al cliente.
 typedef struct {
     int ret;
     char value1[MAX_STR];
