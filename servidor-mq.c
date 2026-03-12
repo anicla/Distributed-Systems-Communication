@@ -52,6 +52,13 @@ static void* worker_fn(void *arg) {
     Response resp;               
     memset(&resp, 0, sizeof(Response)); 
 
+    const char *op_names[] = {
+    "NONE","DESTROY","SET","GET","MODIFY","DELETE","EXIST"
+    };
+
+    printf("Servidor: hilo %lu -> operacion %s, key='%s'\n",
+        pthread_self(), op_names[req.op], req.key);
+
     // ejecucion de la operación (API local de la parte A)
     switch (req.op) {
 
