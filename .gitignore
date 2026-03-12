@@ -6,7 +6,7 @@
 
 # Ejecutables generados
 app-cliente
-cliente_test
+tests/cliente_test
 tests
 tests_local
 test_comunicacion

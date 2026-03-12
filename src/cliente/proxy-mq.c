@@ -5,7 +5,7 @@
 #define _POSIX_C_SOURCE 200809L 
 
 #include "comun.h"
-#include "claves.h"  // prototipos de la API + struct Paquete
+#include "../../punto_h/claves.h"
 #include <mqueue.h>  // colas POSIX
 #include <pthread.h> // mutex
 #include <errno.h>   
