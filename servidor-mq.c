@@ -4,7 +4,7 @@
 #define _POSIX_C_SOURCE 200809L 
 
 #include "comun.h"
-#include "../../punto_h/claves.h"
+#include "claves.h"
 #include <mqueue.h>  // colas POSIX
 #include <pthread.h> // hilos
 #include <signal.h>  // señales
