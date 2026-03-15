@@ -172,6 +172,7 @@ int main(void) {
 
         // si el tamaño del mensaje no es el esperado, lo ignoramos
         if ((size_t)n != sizeof(req)) { 
+            continue;
         }
 
         // reservamos memoria para pasar la petición al hilo 
