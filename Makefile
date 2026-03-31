@@ -1,100 +1,104 @@
 # compilador
 CC = gcc
 
-# FLAGS DE COMPILACIÓN: -Wall -Wextra : warnings útiles; -g: información de depuración; -pthread: necesario para hilos y mutex
+# FLAGS DE COMPILACIÓN
 CFLAGS = -Wall -Wextra -g -pthread
 
-# flag necesario para generar bibliotecas compartidas (.so)
+# flags para .so
 PICFLAGS = -fPIC
-
-# flag para decir que queremos generar .so
 LDFLAGS_SO = -shared
 
-# hace que el ejecutable busque las .so en su propio directorio
+# buscar .so en el mismo directorio
 RPATH = -Wl,-rpath,'$$ORIGIN'
 
-# librerías comunes: en esta práctica con sockets TCP necesitamos -pthread, pero no -lrt
+# librerías comunes
 LDLIBS_COMMON = -pthread
 
-# ficheros fuente
+# fuentes
 SRC_LOCAL        = claves.c
 SRC_PROXY        = proxy-sock.c
 SRC_SERVER       = servidor-sock.c
 SRC_CLIENT       = app-cliente.c
+SRC_CLIENT_CONC  = app-cliente-concurrente.c  
 
-# archivos de cabecera
+# cabeceras
 HDR_LOCAL        = claves.h
 
-# objetos que se generan al compilar
+# objetos
 OBJ_LOCAL        = claves.o
 OBJ_LOCAL_PIC    = claves.pic.o
 OBJ_PROXY_PIC    = proxy-sock.pic.o
 OBJ_SERVER       = servidor-sock.o
 
-# bibliotecas compartidas que se generan al compilar
+# libs
 LIB_LOCAL        = libclaves.so
 LIB_PROXY        = libproxyclaves.so
 
-# ejecutables que produce el proyecto
+# ejecutables
 CLIENT           = cliente
+CLIENT_CONC      = cliente_concurrente   
 SERVER           = servidor
 
-# regla que compila todo el proyecto
-all: $(LIB_LOCAL) $(LIB_PROXY) $(CLIENT) $(SERVER)
+# build completo
+all: $(LIB_LOCAL) $(LIB_PROXY) $(CLIENT) $(CLIENT_CONC) $(SERVER)
 
-# ----- PARTE A: -----
+# ----- PARTE A -----
 
-# compilamos claves.c como objeto PIC para poder crear la biblioteca dinámica
 $(OBJ_LOCAL_PIC): $(SRC_LOCAL) $(HDR_LOCAL)
 	$(CC) $(CFLAGS) $(PICFLAGS) -c $< -o $@
 
-# crear la biblioteca libclaves.so
 $(LIB_LOCAL): $(OBJ_LOCAL_PIC)
 	$(CC) $(LDFLAGS_SO) -o $@ $^ -lpthread
 
-# ----- PARTE B: -----
+# ----- PARTE B -----
 
-# compilamos el proxy como objeto PIC
 $(OBJ_PROXY_PIC): $(SRC_PROXY) $(HDR_LOCAL)
 	$(CC) $(CFLAGS) $(PICFLAGS) -c $< -o $@
 
-# generamos la biblioteca libproxyclaves.so
 $(LIB_PROXY): $(OBJ_PROXY_PIC)
 	$(CC) $(LDFLAGS_SO) -o $@ $^ $(LDLIBS_COMMON)
 
-# ----- OBJETOS NORMALES: -----
+# ----- OBJETOS -----
 
-# compilación de la implementación local que reutilizará el servidor
 $(OBJ_LOCAL): $(SRC_LOCAL) $(HDR_LOCAL)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# compilación del código del servidor
 $(OBJ_SERVER): $(SRC_SERVER) $(HDR_LOCAL)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# ----- SERVIDOR DISTRIBUIDO: -----
-# El servidor enlaza con claves.o directamente así reutiliza la implementación local sin depender de libclaves.so
+# ----- SERVIDOR -----
+
 $(SERVER): $(OBJ_SERVER) $(OBJ_LOCAL)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS_COMMON)
 
-# ----- CLIENTE: -----
+# ----- CLIENTES -----
 
-# cliente distribuido: enlaza con libproxyclaves.so
+# cliente normal
 $(CLIENT): $(SRC_CLIENT) $(LIB_PROXY) $(HDR_LOCAL)
 	$(CC) $(CFLAGS) -o $@ $(SRC_CLIENT) -L. -lproxyclaves $(RPATH) $(LDLIBS_COMMON)
 
-# ----- REGLAS AUXILIARES: -----
+# cliente concurrente (NUEVO)
+$(CLIENT_CONC): $(SRC_CLIENT_CONC) $(LIB_PROXY) $(HDR_LOCAL)
+	$(CC) $(CFLAGS) -o $@ $(SRC_CLIENT_CONC) -L. -lproxyclaves $(RPATH) $(LDLIBS_COMMON)
 
-# ejecuta el servidor en el puerto 4500
+# ----- RUNS -----
+
 run_server: $(SERVER)
 	./$(SERVER) 4500
 
-# ejecuta el cliente con las variables de entorno necesarias
 run_client: $(CLIENT)
 	env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT)
 
-# ----- LIMPIEZA: -----
-clean:
-	rm -f *.o *.so $(CLIENT) $(SERVER)
+# TEST CONCURRENCIA LIMPIO
+run_concurrent: $(CLIENT_CONC)
+	for i in $$(seq 1 10); do \
+		env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT_CONC) & \
+	done; \
+	wait
 
-.PHONY: all clean run_server run_client
+# ----- CLEAN -----
+
+clean:
+	rm -f *.o *.so $(CLIENT) $(CLIENT_CONC) $(SERVER)
+
+.PHONY: all clean run_server run_client run_concurrent

@@ -332,6 +332,9 @@ static void *thread_cliente(void *arg) {
     }
 
     log_peticion(op); // Imprimimos el tipo de petición recibida en el servidor
+    printf("[SERVIDOR] Hilo %lu atendiendo operacion %d\n",
+       (unsigned long)pthread_self(), op); // Mostramos el identificador del hilo que atiende la petición y el código de operación
+    fflush(stdout); // Forzamos la impresión inmediata en pantalla
 
     switch (op) { // Atendemos la petición según el código de operación recibido
         case OP_DESTROY:
