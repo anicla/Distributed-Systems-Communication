@@ -1,7 +1,8 @@
+#define _POSIX_C_SOURCE 200112L
+#include "claves.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "claves.h"
 
 int main(void) {
     pid_t pid = getpid(); //sacar el PID del proceso para generar claves únicas en cada ejecución del cliente y evitar que distintos clientesconcurrentes trabajen sobre las mismas claves.

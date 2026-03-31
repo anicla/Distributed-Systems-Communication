@@ -1,6 +1,6 @@
 // PARTE A
 
-//punto_h para: la API y definición de struct Paquete mutex, malloc/freess y strncpy/strlen
+#include "claves.h"
 #include "claves.h"
 #include <pthread.h> 
 #include <stdlib.h> 
