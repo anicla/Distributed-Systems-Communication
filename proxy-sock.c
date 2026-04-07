@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
 
-#include "claves.h" // Prototipos de la API y struct Paquete
+#include "claves.h" // prototipos de la API y struct Paquete
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,11 +12,11 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#define MAX_LINE 512 // Tamaño máximo para líneas de texto en el protocolo
-#define MAX_STR 256 // Máximo tamaño de strings (255 chars útiles + '\0')
-#define MAX_V2 32 // Máximo número de elementos en V_value2
+#define MAX_LINE 512 // tamaño máximo para las líneas de texto en el protocolo
+#define MAX_STR 256 // maximo tamaño de strings (255 chars útiles + '\0')
+#define MAX_V2 32 // máximo número de elementos en v_value2
 
-// Códigos de operación del protocolo
+// codigos de operacion 
 #define OP_DESTROY     1
 #define OP_SET_VALUE   2
 #define OP_GET_VALUE   3
@@ -24,9 +24,9 @@
 #define OP_DELETE      5
 #define OP_EXIST       6
 
-// Funciones auxiliares de E/S robusta
+//FUNCIONES AUXILIARES DE ENTRADA/SALIDA
 
-// Escribe exactamente "count" bytes en el descriptor fd desde buf
+// escribe exactamente "count" bytes en el descriptor fd desde buf
 static int write_all(int fd, const void *buf, size_t count) {
     const char *p = (const char *)buf; // Puntero para recorrer el buffer
     size_t total = 0; // Total de bytes escritos hasta ahora
