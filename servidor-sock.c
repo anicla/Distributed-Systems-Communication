@@ -408,7 +408,12 @@ int main(int argc, char *argv[]) {
         listen_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol); // Intentamos crear el socket con la dirección actual
         if (listen_fd < 0) continue; // Si falla al crear el socket -> intentamos con la siguiente dirección
 
-        setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)); // Establecemos la opción SO_REUSEADDR para permitir reutilizar el puerto rápidamente después de cerrar el servidor
+        if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) { // Establecemos la opción SO_REUSEADDR para permitir reutilizar el puerto rápidamente después de cerrar el servidor
+            perror("setsockopt");
+            close(listen_fd);
+            listen_fd = -1;
+            continue;
+        }
 
         if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) == 0) { // Si bind es exitoso -> hemos encontrado una dirección válida para el socket de escucha
             break; // Salimos del bucle ya que hemos creado y bindeado el socket correctamente

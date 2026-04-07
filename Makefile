@@ -91,7 +91,13 @@ run_client: $(CLIENT)
 
 # TEST CONCURRENCIA LIMPIO
 run_concurrent: $(CLIENT_CONC)
-	for i in $$(seq 1 10); do \
+	@for i in $$(seq 1 10); do \
+		env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT_CONC) & \
+	done; \
+	wait
+
+run_concurrent20: $(CLIENT_CONC)
+	@for i in $$(seq 1 20); do \
 		env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT_CONC) & \
 	done; \
 	wait
@@ -101,4 +107,4 @@ run_concurrent: $(CLIENT_CONC)
 clean:
 	rm -f *.o *.so $(CLIENT) $(CLIENT_CONC) $(SERVER)
 
-.PHONY: all clean run_server run_client run_concurrent
+.PHONY: all clean run_server run_client run_concurrent run_concurrent20

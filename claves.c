@@ -1,7 +1,6 @@
 // PARTE A
 
 #include "claves.h"
-#include "claves.h"
 #include <pthread.h> 
 #include <stdlib.h> 
 #include <string.h> 

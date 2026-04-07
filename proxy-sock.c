@@ -318,6 +318,7 @@ error:
 int modify_value(char *key, char *value1, int N_value2, float *V_value2, struct Paquete value3) {
     int fd, result, i; // Variable para almacenar el resultado devuelto por el servidor y un índice para iterar
 
+    if (key == NULL || value1 == NULL || V_value2 == NULL) return -1;
     if (N_value2 < 1 || N_value2 > MAX_V2) return -1; // Si N_value2 está fuera del rango válido -> error
 
     fd = connect_to_server(); // Intentamos establecer una conexión con el servidor
