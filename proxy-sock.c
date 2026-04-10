@@ -147,15 +147,15 @@ static int send_string(int fd, const char *str) {
     len = (int)strlen(str); //calcula la longitud del string (sin contar el '\0')
     if (send_int(fd, len) < 0) return -1; //error: fallo al enviar la longitud 
     if (len > 0 && write_all(fd, str, (size_t)len) < 0) return -1; //error: falla al enviar el string 
-    if (write_all(fd, "\n", 1) < 0) return -1; // error: al enviar el carácter de nueva línea 
+    if (write_all(fd, "\n", 1) < 0) return -1; //error: al enviar el carácter de nueva línea 
 
     return 0; 
 }
 
-// recibe un string con el formato definido en send_string y lo almacena en el buffer (respetando maxlen)
+//recibe un string con el formato definido en send_string y lo almacena en el buffer (respetando maxlen)
 static int recv_string(int fd, char *buffer, size_t maxlen) {
-    int len; // variable para almacenar la longitud del string que se va a recibir
-    char newline; // debe contener el '\n' que separa el bloque de datos del siguiente campo
+    int len; //variable para almacenar la longitud del string que se va a recibir
+    char newline; //debe contener el '\n' que separa el bloque de datos del siguiente campo
 
     if (recv_int(fd, &len) < 0) return -1; //error: al recibir la longitud 
     if (len < 0) return -1; //error: longitud es negativa 
