@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
 
-#include "claves.h" // Prototipos de la API y struct Paquete
+#include "claves.h" 
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,12 +14,12 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
-#define BACKLOG 64 // Número máximo de conexiones pendientes en la cola del socket
-#define MAX_LINE 512 // Tamaño máximo para líneas de texto en el protocolo
-#define MAX_STR 256 // Máximo tamaño de strings (255 chars útiles + '\0')
-#define MAX_V2 32 // Máximo número de elementos en V_value2
+#define BACKLOG 64 //nº máximo de conexiones pendientes en la cola del socket
+#define MAX_LINE 512 //máximo para líneas de texto en el protocolo
+#define MAX_STR 256 //tamaño de strings (255 chars útiles + '\0')
+#define MAX_V2 32 //nº de elementos en V_value2
 
-// Códigos de operación del protocolo
+//códigos de operación del protocolo
 #define OP_DESTROY     1
 #define OP_SET_VALUE   2
 #define OP_GET_VALUE   3
@@ -27,64 +27,64 @@
 #define OP_DELETE      5
 #define OP_EXIST       6
 
-// Funciones auxiliares de E/S robusta
+//funciones auxiliares de E/S robusta
 
-// Escribe exactamente "count" bytes en el descriptor fd desde buf
+//escribe exactamente "count" (número de bytes que se queiren escirbir) en el descriptor del fichero (fd) desde el buffer (buf)
 static int write_all(int fd, const void *buf, size_t count) {
-    const char *p = (const char *)buf; // Puntero para recorrer el buffer
-    size_t total = 0; // Total de bytes escritos hasta ahora
+    const char *p = (const char *)buf; //puntero para recorrer el buffer
+    size_t total = 0; //bytes escritos hasta ahora
 
-    while (total < count) { // Mientras no hayamos escrito todo -> escribir
-        ssize_t n = write(fd, p + total, count - total); // Intentamos escribir el resto del buffer
-        if (n < 0) { // Si hay error -> verificamos si fue por interrupción (EINTR) o es un error real
-            if (errno == EINTR) continue; // Si fue por interrupción -> intentamos escribir de nuevo
-            return -1; // Si es un error real -> devolvemos -1
+    while (total < count) { //seguir escribiendo hasta que se haya escrito todo
+        ssize_t n = write(fd, p + total, count - total); // intentar escribir el resto del buffer
+        if (n < 0) { //ver si el error es por interrupción (EINTR) o un error real
+            if (errno == EINTR) continue; //interrupción: intentar escribir de nuevo
+            return -1; //error real: -1
         }
-        if (n == 0) return -1; // Si write devuelve 0 -> no se ha podido avanzar en la escritura y lo tratamos como error
-        total += (size_t)n; // Actualizamos el total de bytes escritos
+        if (n == 0) return -1; //write = 0: no se ha podido avanzar en la escritura (error)
+        total += (size_t)n; //actualización del total de bytes escritos
     }
-    return 0; // Todo escrito correctamente
+    return 0; 
 }
 
-// Lee exactamente "count" bytes del descriptor fd en buf
+//lee  el "count" del (número de bytes que se queiren escirbir) en el descriptor del fichero (fd) en buffer (buf)
 static int read_all(int fd, void *buf, size_t count) {
-    char *p = (char *)buf; // Puntero para recorrer el buffer
-    size_t total = 0; // Total de bytes leídos hasta ahora
+    char *p = (char *)buf; //puntero para recorrer el buffer
+    size_t total = 0; //total de bytes leídos 
 
-    while (total < count) { // Mientras no hayamos leído todo -> leer
-        ssize_t n = read(fd, p + total, count - total); // Intentamos leer el resto del buffer
-        if (n < 0) { // Si hay error -> verificamos si fue por interrupción (EINTR) o es un error real
-            if (errno == EINTR) continue; // Si fue por interrupción -> intentamos leer de nuevo
-            return -1; // Si es un error real -> devolvemos -1
+    while (total < count) { //seguir leyendo hasta que se haya leido todo
+        ssize_t n = read(fd, p + total, count - total); //intentar leer el resto del buffer
+        if (n < 0) { //ver si el error es por interrupción (EINTR) o un error real
+            if (errno == EINTR) continue; //interrupción: intentar leer de nuevo
+            return -1; //error real: -1
         }
-        if (n == 0) return -1; // Si read devuelve 0 -> no se ha podido avanzar en la lectura y lo tratamos como error
-        total += (size_t)n; // Actualizamos el total de bytes leídos
+        if (n == 0) return -1; //read = 0: el otro extremo ha cerrado la conexión antes de completar la lectura
+        total += (size_t)n; //actualización el total de bytes leídos
     }
-    return 0; // Todo leído correctamente
+    return 0; 
 }
 
-// Envía una línea de texto (terminada en '\n')
+//envía una línea de texto (que acabo con '\n')
 static int send_line(int fd, const char *line) {
-    if (write_all(fd, line, strlen(line)) < 0) return -1; // Si falla al escribir la línea -> error
-    if (write_all(fd, "\n", 1) < 0) return -1; // Si falla al escribir el carácter de nueva línea -> error
-    return 0; // Línea enviada correctamente
+    if (write_all(fd, line, strlen(line)) < 0) return -1; //error: al escribir la linea
+    if (write_all(fd, "\n", 1) < 0) return -1;  //error: al escribir el carácter de nueva línea 
+    return 0; 
 }
 
-// Envía un entero como línea con formato de número entero
+//envía un entero como línea con formato de número entero
 static int send_int(int fd, int value) {
-    char buf[MAX_LINE]; // Buffer para convertir el entero a texto
-    snprintf(buf, sizeof(buf), "%d", value); // Convertimos el entero a texto y lo almacenamos en buf
-    return send_line(fd, buf); // Enviamos la línea con el entero convertido
+    char buf[MAX_LINE]; //buffer para convertir el entero a texto
+    snprintf(buf, sizeof(buf), "%d", value); //conversion el entero a texto y almacenarlo en el buf
+    return send_line(fd, buf); //envia la línea con el entero convertido
 }
 
-// Envía un float como línea con formato de punto flotante
+//envía un float como línea con formato de punto flotante
 static int send_float(int fd, float value) {
-    char buf[MAX_LINE]; // Buffer para convertir el float a texto
-    snprintf(buf, sizeof(buf), "%.9g", value); // Convertimos el float a texto con formato de punto flotante y lo almacenamos en buf
-    return send_line(fd, buf); // Enviamos la línea con el float convertido
+    char buf[MAX_LINE];  //buffer para convertir el float a texto
+    snprintf(buf, sizeof(buf), "%.9g", value); // converesion el float a texto con formato de punto flotante y lo almacenamos en buf
+    return send_line(fd, buf); // envia la línea con el float convertido
 }
 
-// Lee del descriptor fd hasta encontrar un '\n' o llenar el buffer (dejando espacio para '\0'), y almacena la línea leída en buffer (sin incluir el '\n')
+// lee del descriptor fd hasta encontrar un '\n' o llenar el buffer (dejando espacio para '\0'), y almacena la línea leída en buffer (sin incluir el '\n')
 static int recv_line(int fd, char *buffer, size_t maxlen) {
     size_t i = 0; // Índice para almacenar caracteres en buffer
     char c; // Variable para almacenar el carácter leído
