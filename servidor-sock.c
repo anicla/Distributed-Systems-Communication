@@ -416,63 +416,63 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) == 0) { // Si bind es exitoso -> hemos encontrado una dirección válida para el socket de escucha
-            break; // Salimos del bucle ya que hemos creado y bindeado el socket correctamente
+        if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) == 0) { //se ha encontrado una dircc valida para el socket de escucha si bind es exitoso 
+            break; 
         }
 
-        close(listen_fd); // Si falla al bindear el socket -> cerramos el socket y seguimos intentando con la siguiente dirección
-        listen_fd = -1; // Reiniciamos listen_fd para indicar que no tenemos un socket válido aún
+        close(listen_fd); //fallo al bindear el socket: cerrarlo e intentar con otra dircc 
+        listen_fd = -1; // se reinicia listen_fd para indicar que no tenemos un socket válido aún
     }
 
-    freeaddrinfo(res); // Liberamos la memoria de las direcciones obtenidas por getaddrinfo
+    freeaddrinfo(res); //libreracion en memoria de las direcciones obtenidas por getaddrinfo
 
-    if (listen_fd < 0) { // Si no hemos podido crear un socket de escucha válido -> error
-        perror("bind/socket"); // Imprimimos el error de bind o socket
-        return 1; // Devolvemos 1 para indicar error
+    if (listen_fd < 0) { //error: no hemos podido crear un socket de escucha válido 
+        perror("bind/socket"); 
+        return 1; //1: indicar error
     }
 
-    if (listen(listen_fd, BACKLOG) < 0) { // Si listen devuelve un error -> lo imprimimos y cerramos el socket
-        perror("listen"); // Imprimimos el error de listen
-        close(listen_fd); // Cerramos el socket de escucha
-        return 1; // Devolvemos 1 para indicar error
+    if (listen(listen_fd, BACKLOG) < 0) { // listen = error: lo imprimimos y cerramos el socket
+        perror("listen"); 
+        close(listen_fd); //cerramos el socket 
+        return 1; //1: indicar error
     }
 
-    printf("[SERVIDOR] Escuchando en el puerto %s...\n", argv[1]); // Imprimimos un mensaje indicando que el servidor está escuchando en el puerto especificado
-    fflush(stdout); // Aseguramos que el mensaje se imprima antes de aceptar conexiones
+    printf("[SERVIDOR] Escuchando en el puerto %s...\n", argv[1]); //mensaje: indicar que el servidor está escuchando en el puerto especificado
+    fflush(stdout); // el mensaje se debe imprimir antes de aceptar conexiones
 
-    while (1) { // Bucle principal para aceptar conexiones de clientes
-        int client_fd; // Variable para el descriptor de la conexión con el cliente
-        struct sockaddr_storage client_addr; // Variable para almacenar la dirección del cliente
-        socklen_t client_len = sizeof(client_addr); // Variable para almacenar la longitud de la dirección del cliente
-        pthread_t th; // Variable para el identificador del hilo que atenderá al cliente
-        int *pclient; // Variable para almacenar el descriptor del cliente que se pasará al hilo
+    while (1) { //bucle para aceptar conexiones de clientes
+        int client_fd; // variable para el descriptor de la conexión con el cliente
+        struct sockaddr_storage client_addr; // variable para almacenar la dirección del cliente
+        socklen_t client_len = sizeof(client_addr); //variable para almacenar la longitud de la dirección del cliente
+        pthread_t th; //variable para el identificador del hilo que atenderá al cliente
+        int *pclient; //variable para almacenar el descriptor del cliente que se pasará al hilo
 
-        client_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len); // Aceptamos una conexión entrante de un cliente y obtenemos el descriptor de la conexión y la dirección del cliente
-        if (client_fd < 0) { // Si accept devuelve un error -> lo imprimimos y continuamos
-            if (errno == EINTR) continue; // Si fue por interrupción -> intentamos aceptar de nuevo
-            perror("accept"); // Imprimimos el error de accept
-            continue; // Continuamos para aceptar la siguiente conexión entrante
+        client_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len); //aceptamos una conexión entrante de un cliente y obtenemos el descriptor de la conexión y la dirección del cliente
+        if (client_fd < 0) { //accept devuelve un error: imprimimos y continuamos
+            if (errno == EINTR) continue; //error por interrupción: intentamos aceptar de nuevo
+            perror("accept");
+            continue; // continuamos para aceptar la siguiente conexión entrante
         }
 
-        pclient = (int *)malloc(sizeof(int)); // Reservamos memoria para almacenar el descriptor del cliente que se pasará al hilo
-        if (pclient == NULL) { // Si falla la reserva de memoria -> lo imprimimos, cerramos la conexión con el cliente, y continuamos
-            perror("malloc"); // Imprimimos el error de malloc
-            close(client_fd); // Cerramos la conexión con el cliente
-            continue; // Continuamos para aceptar la siguiente conexión entrante
+        pclient = (int *)malloc(sizeof(int)); // reserva de memoria para almacenar el descriptor del cliente que se pasará al hilo
+        if (pclient == NULL) { //falla la reserva de memoria: lo imprimimos, cerramos la conexión con el cliente, y continuamos
+            perror("malloc"); 
+            close(client_fd); //cerrar la conexión con el cliente
+            continue; //continua para aceptar la siguiente conexión entrante
         }
 
-        *pclient = client_fd; // Almacenamos el descriptor del cliente en la variable que se pasará al hilo
+        *pclient = client_fd; //almacenamos el descriptor del cliente en la variable que se pasará al hilo
 
-        if (pthread_create(&th, NULL, thread_cliente, pclient) != 0) { // Si falla al crear el hilo -> lo imprimimos, cerramos la conexión con el cliente, liberamos la memoria, y continuamos
-            perror("pthread_create"); // Imprimimos el error de pthread_create
-            close(client_fd); // Cerramos la conexión con el cliente
-            free(pclient); // Liberamos la memoria reservada para el descriptor del cliente
-            continue; // Continuamos para aceptar la siguiente conexión entrante
+        if (pthread_create(&th, NULL, thread_cliente, pclient) != 0) { //fallo al crear el hilo: lo imprimimos, cerramos la conexión con el cliente, liberamos la memoria, y continuamos
+            perror("pthread_create"); 
+            close(client_fd); //cerrar la conexión con el cliente
+            free(pclient); //liberacion de la memoria reservada para el descriptor del cliente
+            continue; //continuar para aceptar la siguiente conexión entrante
         }
 
-        pthread_detach(th); // Desacoplamos el hilo para no tener que hacer join()
+        pthread_detach(th); //desacoplamiento del hilo para no tener que hacer join()
     }
 
-    close(listen_fd); // Cerramos el socket de escucha
-    return 0; // Devolvemos 0 para indicar que el servidor terminó correctamente
+    close(listen_fd); //cierre del socket de escucha
+    return 0; //devolver 0 para indicar que el servidor terminó correctamente
 }
