@@ -1,110 +1,64 @@
-# compilador
 CC = gcc
-
-# FLAGS DE COMPILACIÓN
-CFLAGS = -Wall -Wextra -g -pthread
-
-# flags para .so
-PICFLAGS = -fPIC
-LDFLAGS_SO = -shared
-
-# buscar .so en el mismo directorio
+CFLAGS = -Wall -Wextra -g -fPIC -I/usr/include/tirpc
 RPATH = -Wl,-rpath,'$$ORIGIN'
+RPCGEN = rpcgen
 
-# librerías comunes
-LDLIBS_COMMON = -pthread
+RPC_BASE = clavesRPC
+RPC_X = $(RPC_BASE).x
+RPC_GEN = $(RPC_BASE).h $(RPC_BASE)_clnt.c $(RPC_BASE)_svc.c $(RPC_BASE)_xdr.c
 
-# fuentes
-SRC_LOCAL        = claves.c
-SRC_PROXY        = proxy-sock.c
-SRC_SERVER       = servidor-sock.c
-SRC_CLIENT       = app-cliente.c
-SRC_CLIENT_CONC  = app-cliente-concurrente.c  
+LIB_LOCAL = libclaves.so
+LIB_PROXY = libproxyclaves.so
+SERVER = clavesRPC_server
+CLIENT = cliente
 
-# cabeceras
-HDR_LOCAL        = claves.h
+LDLIBS_RPC = -ltirpc -lpthread
+LDLIBS_LOCAL = -lpthread
 
-# objetos
-OBJ_LOCAL        = claves.o
-OBJ_LOCAL_PIC    = claves.pic.o
-OBJ_PROXY_PIC    = proxy-sock.pic.o
-OBJ_SERVER       = servidor-sock.o
+all: $(LIB_LOCAL) $(LIB_PROXY) $(SERVER) $(CLIENT)
 
-# libs
-LIB_LOCAL        = libclaves.so
-LIB_PROXY        = libproxyclaves.so
+rpc: $(RPC_GEN)
 
-# ejecutables
-CLIENT           = cliente
-CLIENT_CONC      = cliente_concurrente   
-SERVER           = servidor
+$(RPC_GEN): $(RPC_X)
+	$(RPCGEN) -NM $(RPC_X)
 
-# build completo
-all: $(LIB_LOCAL) $(LIB_PROXY) $(CLIENT) $(CLIENT_CONC) $(SERVER)
+claves.pic.o: claves.c claves.h
+	$(CC) $(CFLAGS) -c claves.c -o $@
 
-# ----- PARTE A -----
+$(LIB_LOCAL): claves.pic.o
+	$(CC) -shared -o $@ $^ $(LDLIBS_LOCAL)
 
-$(OBJ_LOCAL_PIC): $(SRC_LOCAL) $(HDR_LOCAL)
-	$(CC) $(CFLAGS) $(PICFLAGS) -c $< -o $@
+proxy_rpc.pic.o: proxy_rpc.c claves.h $(RPC_BASE).h
+	$(CC) $(CFLAGS) -c proxy_rpc.c -o $@
 
-$(LIB_LOCAL): $(OBJ_LOCAL_PIC)
-	$(CC) $(LDFLAGS_SO) -o $@ $^ -lpthread
+$(RPC_BASE)_clnt.pic.o: $(RPC_BASE)_clnt.c $(RPC_BASE).h
+	$(CC) $(CFLAGS) -c $(RPC_BASE)_clnt.c -o $@
 
-# ----- PARTE B -----
+$(RPC_BASE)_xdr.pic.o: $(RPC_BASE)_xdr.c $(RPC_BASE).h
+	$(CC) $(CFLAGS) -c $(RPC_BASE)_xdr.c -o $@
 
-$(OBJ_PROXY_PIC): $(SRC_PROXY) $(HDR_LOCAL)
-	$(CC) $(CFLAGS) $(PICFLAGS) -c $< -o $@
+$(LIB_PROXY): rpc proxy_rpc.pic.o $(RPC_BASE)_clnt.pic.o $(RPC_BASE)_xdr.pic.o
+	$(CC) -shared -o $@ proxy_rpc.pic.o $(RPC_BASE)_clnt.pic.o $(RPC_BASE)_xdr.pic.o $(LDLIBS_RPC)
 
-$(LIB_PROXY): $(OBJ_PROXY_PIC)
-	$(CC) $(LDFLAGS_SO) -o $@ $^ $(LDLIBS_COMMON)
+$(RPC_BASE)_svc.o: $(RPC_BASE)_svc.c $(RPC_BASE).h
+	$(CC) $(CFLAGS) -c $(RPC_BASE)_svc.c -o $@
 
-# ----- OBJETOS -----
+rpc_service.o: rpc_service.c claves.h $(RPC_BASE).h
+	$(CC) $(CFLAGS) -c rpc_service.c -o $@
 
-$(OBJ_LOCAL): $(SRC_LOCAL) $(HDR_LOCAL)
-	$(CC) $(CFLAGS) -c $< -o $@
+$(RPC_BASE)_xdr.o: $(RPC_BASE)_xdr.c $(RPC_BASE).h
+	$(CC) $(CFLAGS) -c $(RPC_BASE)_xdr.c -o $@
 
-$(OBJ_SERVER): $(SRC_SERVER) $(HDR_LOCAL)
-	$(CC) $(CFLAGS) -c $< -o $@
+$(SERVER): rpc $(RPC_BASE)_svc.o rpc_service.o $(RPC_BASE)_xdr.o claves.pic.o
+	$(CC) -o $@ $(RPC_BASE)_svc.o rpc_service.o $(RPC_BASE)_xdr.o claves.pic.o $(LDLIBS_RPC)
 
-# ----- SERVIDOR -----
+app-cliente.o: app-cliente.c claves.h
+	$(CC) -Wall -Wextra -g -c app-cliente.c -o $@
 
-$(SERVER): $(OBJ_SERVER) $(OBJ_LOCAL)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS_COMMON)
-
-# ----- CLIENTES -----
-
-# cliente normal
-$(CLIENT): $(SRC_CLIENT) $(LIB_PROXY) $(HDR_LOCAL)
-	$(CC) $(CFLAGS) -o $@ $(SRC_CLIENT) -L. -lproxyclaves $(RPATH) $(LDLIBS_COMMON)
-
-# cliente concurrente (NUEVO)
-$(CLIENT_CONC): $(SRC_CLIENT_CONC) $(LIB_PROXY) $(HDR_LOCAL)
-	$(CC) $(CFLAGS) -o $@ $(SRC_CLIENT_CONC) -L. -lproxyclaves $(RPATH) $(LDLIBS_COMMON)
-
-# ----- RUNS -----
-
-run_server: $(SERVER)
-	./$(SERVER) 4500
-
-run_client: $(CLIENT)
-	env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT)
-
-# TEST CONCURRENCIA LIMPIO
-run_concurrent: $(CLIENT_CONC)
-	@for i in $$(seq 1 10); do \
-		env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT_CONC) & \
-	done; \
-	wait
-
-run_concurrent20: $(CLIENT_CONC)
-	@for i in $$(seq 1 20); do \
-		env IP_TUPLAS=127.0.0.1 PORT_TUPLAS=4500 ./$(CLIENT_CONC) & \
-	done; \
-	wait
-
-# ----- CLEAN -----
+$(CLIENT): app-cliente.o $(LIB_PROXY)
+	$(CC) -Wall -Wextra -g -o $@ app-cliente.o -L. -lproxyclaves $(RPATH) $(LDLIBS_RPC)
 
 clean:
-	rm -f *.o *.so $(CLIENT) $(CLIENT_CONC) $(SERVER)
+	rm -f *.o *.so $(SERVER) $(CLIENT) $(RPC_GEN)
 
-.PHONY: all clean run_server run_client run_concurrent run_concurrent20
+.PHONY: all clean rpc
