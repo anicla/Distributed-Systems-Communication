@@ -1,5 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -fPIC -I/usr/include/tirpc
+# Añadimos -Wno-unused-variable -Wno-unused-parameter -Wno-cast-function-type
+CFLAGS = -Wall -Wextra -g -fPIC -I/usr/include/tirpc -Wno-unused-variable -Wno-unused-parameter -Wno-cast-function-type
 RPATH = -Wl,-rpath,'$$ORIGIN'
 RPCGEN = rpcgen
 
@@ -53,10 +54,10 @@ $(SERVER): rpc $(RPC_BASE)_svc.o rpc_service.o $(RPC_BASE)_xdr.o claves.pic.o
 	$(CC) -o $@ $(RPC_BASE)_svc.o rpc_service.o $(RPC_BASE)_xdr.o claves.pic.o $(LDLIBS_RPC)
 
 app-cliente.o: app-cliente.c claves.h
-	$(CC) -Wall -Wextra -g -c app-cliente.c -o $@
+	$(CC) $(CFLAGS) -c app-cliente.c -o $@
 
 $(CLIENT): app-cliente.o $(LIB_PROXY)
-	$(CC) -Wall -Wextra -g -o $@ app-cliente.o -L. -lproxyclaves $(RPATH) $(LDLIBS_RPC)
+	$(CC) $(CFLAGS) -o $@ app-cliente.o -L. -lproxyclaves $(RPATH) $(LDLIBS_RPC)
 
 clean:
 	rm -f *.o *.so $(SERVER) $(CLIENT) $(RPC_GEN)
